@@ -36,37 +36,35 @@
   (function() {
     var params = new URLSearchParams(window.location.search);
     var id = params.get('id');
-
     if (!id) {
       window.location.href = 'https://www.coupang.com';
       return;
     }
-
     var LINKS_URL = 'https://raw.githubusercontent.com/tittue/cps-redirect/main/links.json';
-    var fallback  = 'https://www.coupang.com/vp/products/' + id;
-
     // links.json 에서 내 파트너스 단축링크 찾기
     var xhr = new XMLHttpRequest();
-    xhr.open('GET', LINKS_URL + '?t=' + Date.now(), true); // 캐시 방지
-    xhr.timeout = 5000;
-
+    xhr.open('GET', LINKS_URL + '?t=' + Date.now(), true);
+    xhr.timeout = 8000;
     xhr.onload = function() {
       if (xhr.status === 200) {
         try {
           var db = JSON.parse(xhr.responseText);
-          // db 구조: { "상품ID": { "title": "...", "link": "https://link.coupang.com/a/xxx" } }
           if (db[id] && db[id].link) {
-            window.location.href = db[id].link; // 내 파트너스 링크로!
+            window.location.href = db[id].link;
+            return;
+          }
+          // id 매칭 실패 → title로 쿠팡 검색 (fallback)
+          if (db[id] && db[id].title) {
+            window.location.href = 'https://www.coupang.com/np/search?component=&q=' + encodeURIComponent(db[id].title);
             return;
           }
         } catch(e) {}
       }
-      window.location.href = fallback; // 없으면 직링크
+      // links.json에 아예 없으면 쿠팡 메인으로
+      window.location.href = 'https://www.coupang.com';
     };
-
-    xhr.onerror = function() { window.location.href = fallback; };
-    xhr.ontimeout = function() { window.location.href = fallback; };
-
+    xhr.onerror = function() { window.location.href = 'https://www.coupang.com'; };
+    xhr.ontimeout = function() { window.location.href = 'https://www.coupang.com'; };
     xhr.send();
   })();
 </script>
