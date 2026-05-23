@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#15171f">
+  <title>8BitDo Micro 펌웨어 다운로더</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0; padding: 0;
+      background: #15171f;
+      color: #e8e9f3;
+      font-family: -apple-system, BlinkMacSystemFont, "맑은 고딕", "Apple SD Gothic Neo", sans-serif;
+      min-height: 100vh;
+      padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    }
+    header { padding: 24px 0 16px; }
+    h1 {
+      font-size: 20px;
+      margin: 0 0 4px;
+      background: linear-gradient(90deg, #5ed4a3, #4d7cff);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .sub { color: #8b8fa3; font-size: 12px; margin-bottom: 16px; }
+    .card {
+      background: #1f2230;
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 14px;
+    }
+    button {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      background: #5ed4a3;
+      color: #000;
+      margin-top: 8px;
+    }
+    button:disabled { opacity: 0.5; }
+    .secondary { background: #4d7cff; color: #fff; }
+    .danger { background: #ff6b6b; color: #fff; }
+    .item {
+      background: #2a2e3f;
+      padding: 12px 14px;
+      border-radius: 10px;
+      margin-bottom: 8px;
+    }
+    .item .name { font-weight: 600; color: #e8e9f3; font-size: 14px; }
+    .item .meta { font-size: 11px; color: #8b8fa3; margin-top: 2px; }
+    .item .actions { margin-top: 8px; display: flex; gap: 8px; }
+    .item .actions a, .item .actions button {
+      flex: 1; padding: 8px;
+      font-size: 12px;
+      border-radius: 6px;
+      text-align: center;
+      text-decoration: none;
+      display: block;
+      margin-top: 0;
+    }
+    .log {
+      background: #11141c;
+      border-radius: 8px;
+      padding: 10px;
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      color: #8b8fa3;
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .warn { color: #ffc857; }
+    .err { color: #ff6b6b; }
+    .ok { color: #5ed4a3; }
+    code { background: #2a2e3f; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🎮 8BitDo Micro 펌웨어 다운로더</h1>
+    <div class="sub">폰 브라우저용 — 다운로드 → 깃허브 릴리즈에 업로드</div>
+  </header>
+
+  <div class="card">
+    <strong>1단계: 펌웨어 목록 가져오기</strong>
+    <div class="sub" style="margin: 6px 0 0;">8BitDo 서버에 한국 IP로 직접 요청. 폰 브라우저면 가능.</div>
+    <button id="fetch-btn" onclick="fetchList()">🔄 목록 가져오기</button>
+  </div>
+
+  <div class="card" id="results-card" style="display:none">
+    <strong>2단계: Micro 펌웨어 선택해서 다운로드</strong>
+    <div class="sub" style="margin: 6px 0 12px;">버튼 길게 눌러서 "링크 저장" 또는 그냥 탭하면 다운로드 시작.</div>
+    <div id="results"></div>
+  </div>
+
+  <div class="card">
+    <strong>3단계: 다운된 .dat 파일 업로드</strong>
+    <div class="sub" style="margin: 6px 0 8px;">아래 버튼 누르면 GitHub Release 생성 페이지로 이동. 거기 "Attach binaries" 영역에 다운된 .dat 파일 드래그.</div>
+    <a href="https://github.com/tittue/cps-redirect/releases/new" target="_blank" rel="noopener">
+      <button class="secondary">📤 GitHub Release 페이지로 이동</button>
+    </a>
+  </div>
+
+  <div class="card">
+    <strong>로그</strong>
+    <div class="log" id="log">대기 중...</div>
+  </div>
+
+  <script>
+    const BASE = "http://dl.8bitdo.com:8080";
+    const HTTPS_BASE = "https://dl.8bitdo.com:8080"; // 시도용
+    const log = document.getElementById('log');
+
+    function L(msg, cls = '') {
+      const span = document.createElement('span');
+      if (cls) span.className = cls;
+      span.textContent = '[' + new Date().toTimeString().slice(0, 8) + '] ' + msg + '\n';
+      log.appendChild(span);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function fetchList() {
+      const btn = document.getElementById('fetch-btn');
+      btn.disabled = true;
+      btn.textContent = '⏳ 가져오는 중...';
+      log.innerHTML = '';
+      L('펌웨어 목록 요청 시작');
+
+      // POST 시도 (HTTPS 우선, 실패하면 HTTP)
+      let data = null;
+      let lastErr = null;
+      for (const base of [HTTPS_BASE, BASE]) {
+        try {
+          L('POST ' + base + '/firmware/select 시도');
+          const res = await fetch(base + '/firmware/select', {
+            method: 'POST',
+            headers: { 'Beta': '1' },
+            mode: 'cors',
+          });
+          if (!res.ok) {
+            L('  → HTTP ' + res.status, 'warn');
+            continue;
+          }
+          data = await res.json();
+          L('  → 응답 OK (' + (data.list || []).length + '개 항목)', 'ok');
+          break;
+        } catch (e) {
+          lastErr = e;
+          L('  → 실패: ' + e.message, 'err');
+        }
+      }
+
+      if (!data) {
+        L('모든 시도 실패. 8BitDo 서버가 CORS 막거나, 폰이 그 서버에 못 닿음.', 'err');
+        L('대안: 8BitDo 앱에서 펌웨어 업데이트 진행 → 캐시된 .dat 파일을 파일관리자로 찾기', 'warn');
+        L('  경로: /Android/data/com.abitdo.advance/files/ 또는 /sdcard/8BitDo/', 'warn');
+        btn.disabled = false;
+        btn.textContent = '🔄 다시 시도';
+        return;
+      }
+
+      // Micro 들어간 항목 필터
+      const products = {};
+      for (const it of data.list) {
+        if (!products[it.type]) products[it.type] = [];
+        products[it.type].push(it);
+      }
+      L('총 ' + Object.keys(products).length + '개 제품');
+
+      const microMatches = [];
+      for (const [num, fws] of Object.entries(products)) {
+        const name = (fws[0].fileName || '').toLowerCase();
+        if (name.includes('micro')) {
+          microMatches.push({ num, fws });
+        }
+      }
+      L('Micro 들어간 제품: ' + microMatches.length + '개', microMatches.length ? 'ok' : 'warn');
+
+      const resultsCard = document.getElementById('results-card');
+      const results = document.getElementById('results');
+      results.innerHTML = '';
+
+      if (microMatches.length === 0) {
+        // Micro 없으면 전체 목록 보여줌
+        L('Micro 없음. 전체 제품 목록 표시', 'warn');
+        for (const [num, fws] of Object.entries(products)) {
+          renderItem(num, fws, results);
+        }
+      } else {
+        for (const { num, fws } of microMatches) {
+          renderItem(num, fws, results);
+        }
+      }
+
+      resultsCard.style.display = '';
+      btn.disabled = false;
+      btn.textContent = '🔄 다시 가져오기';
+    }
+
+    function renderItem(num, fws, container) {
+      // 최신 버전만
+      const sorted = [...fws].sort((a, b) => (b.version || 0) - (a.version || 0));
+      const latest = sorted[0];
+      const path = latest.filePathName || latest.filePath || '';
+      const fullUrl = (path.startsWith('http') ? '' : BASE) + path;
+
+      const item = document.createElement('div');
+      item.className = 'item';
+      item.innerHTML = `
+        <div class="name">#${num}: ${latest.fileName || '(이름 없음)'}</div>
+        <div class="meta">버전 ${latest.version} · 빌드 ${latest.beta || 'release'}</div>
+        <div class="meta" style="word-break: break-all; margin-top: 4px;">${fullUrl}</div>
+        <div class="actions">
+          <a href="${fullUrl}" target="_blank" rel="noopener" download="${latest.fileName || 'firmware'}.dat">
+            <button>⬇ 다운로드</button>
+          </a>
+        </div>
+      `;
+      container.appendChild(item);
+    }
+  </script>
+</body>
+</html>
