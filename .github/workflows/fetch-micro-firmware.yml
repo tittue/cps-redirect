@@ -1,0 +1,106 @@
+name: Fetch 8BitDo Micro firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: "Filter by product name (default: micro)"
+        required: false
+        default: "micro"
+      release_tag:
+        description: "Release tag to upload to"
+        required: false
+        default: "MicroFW"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install requests
+        run: pip install --quiet requests
+
+      - name: Fetch firmware list and download
+        id: fetch
+        run: |
+          python tools/8bitdo-firmware-fetch/fetch_firmware.py || true
+          echo "::group::Downloaded files"
+          ls -la firmware_dl/ 2>/dev/null || echo "(none)"
+          echo "::endgroup::"
+
+      - name: Verify download
+        run: |
+          if [ -z "$(ls firmware_dl/*.dat 2>/dev/null)" ]; then
+            echo "::error::No .dat files downloaded"
+            exit 1
+          fi
+          for f in firmware_dl/*.dat; do
+            sz=$(stat -c%s "$f")
+            echo "  $f ($sz bytes)"
+          done
+
+      - name: Upload firmware files to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          # Create or update release via curl + GitHub API
+          REPO="${{ github.repository }}"
+
+          # Check if release exists
+          rel=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/releases/tags/$TAG")
+          rel_id=$(echo "$rel" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null)
+
+          if [ -z "$rel_id" ]; then
+            echo "Creating new release $TAG"
+            create=$(curl -s -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -d "{\"tag_name\":\"$TAG\",\"name\":\"Micro Firmware (auto-fetched)\"}" \
+              "https://api.github.com/repos/$REPO/releases")
+            rel_id=$(echo "$create" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))")
+          fi
+
+          if [ -z "$rel_id" ]; then
+            echo "::error::Failed to create/find release"
+            echo "$create" | head -c 500
+            exit 1
+          fi
+
+          echo "Release ID: $rel_id"
+
+          # Upload each .dat file
+          for f in firmware_dl/*.dat firmware_dl/*.json; do
+            [ -f "$f" ] || continue
+            name=$(basename "$f")
+            echo "Uploading $name..."
+            curl -s -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f" \
+              "https://uploads.github.com/repos/$REPO/releases/$rel_id/assets?name=$name" \
+              -o /tmp/up.json
+            url=$(python3 -c "import json; print(json.load(open('/tmp/up.json')).get('browser_download_url',''))")
+            echo "  → $url"
+          done
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 다운로드 결과" >> $GITHUB_STEP_SUMMARY
+          for f in firmware_dl/*; do
+            [ -f "$f" ] || continue
+            echo "- $f ($(stat -c%s "$f") bytes)" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Release: https://github.com/${{ github.repository }}/releases/tag/${{ github.event.inputs.release_tag }}" >> $GITHUB_STEP_SUMMARY
