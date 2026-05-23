@@ -32,13 +32,21 @@ jobs:
       - name: Fetch firmware list and download
         id: fetch
         run: |
-          python tools/8bitdo-firmware-fetch/fetch_firmware.py 2>&1 | tee fetch_log.txt || true
-          echo "::group::Downloaded files"
-          ls -la firmware_dl/ 2>/dev/null || echo "(none)"
+          set -x
+          # 진입 보장용 — 빈 파일 미리 만들기
+          mkdir -p firmware_dl/debug
+          echo "fetch step started at $(date)" > fetch_log.txt
+          python --version 2>&1 | tee -a fetch_log.txt
+          python -c "import requests; print('requests OK', requests.__version__)" 2>&1 | tee -a fetch_log.txt || true
+          # 본 스크립트 실행 (5분 timeout)
+          timeout 300 python tools/8bitdo-firmware-fetch/fetch_firmware.py 2>&1 | tee -a fetch_log.txt
+          ec=$?
+          echo "exit code: $ec" | tee -a fetch_log.txt
+          echo "::group::Files in firmware_dl"
+          find firmware_dl/ -type f -exec ls -la {} \; 2>&1
           echo "::endgroup::"
-          echo "::group::Debug responses"
-          ls -la firmware_dl/debug/ 2>/dev/null || echo "(none)"
-          echo "::endgroup::"
+          # 절대 fail 안하게
+          exit 0
 
       - name: Upload debug info as artifact (always)
         if: always()
