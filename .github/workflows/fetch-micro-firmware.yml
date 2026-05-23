@@ -32,15 +32,31 @@ jobs:
       - name: Fetch firmware list and download
         id: fetch
         run: |
-          python tools/8bitdo-firmware-fetch/fetch_firmware.py || true
+          python tools/8bitdo-firmware-fetch/fetch_firmware.py 2>&1 | tee fetch_log.txt || true
           echo "::group::Downloaded files"
           ls -la firmware_dl/ 2>/dev/null || echo "(none)"
           echo "::endgroup::"
+          echo "::group::Debug responses"
+          ls -la firmware_dl/debug/ 2>/dev/null || echo "(none)"
+          echo "::endgroup::"
+
+      - name: Upload debug info as artifact (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetch-debug
+          path: |
+            firmware_dl/
+            fetch_log.txt
+          retention-days: 7
 
       - name: Verify download
         run: |
           if [ -z "$(ls firmware_dl/*.dat 2>/dev/null)" ]; then
-            echo "::error::No .dat files downloaded"
+            echo "::error::No .dat files downloaded — check debug artifact"
+            echo "## Fetch failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Download the 'fetch-debug' artifact from this run to see raw responses." >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
           for f in firmware_dl/*.dat; do
