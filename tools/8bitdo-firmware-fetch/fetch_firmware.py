@@ -1,32 +1,42 @@
 """
-8BitDo 펌웨어 다운로더 v4 — 빠른 + 항상 출력
+8BitDo 펌웨어 다운로더 v5 — 컨트롤러 펌웨어 API + 올바른 URL
 
-전략: type 1~50 만, 빠른 timeout, 결과 즉시 저장.
+이전 v4는 /firmware/loadNewToolUpdateVersion 호출했는데 그건 PC/모바일 앱
+업데이트용. 컨트롤러 펌웨어는 /firmware/loadNewVersion 사용.
+
+필요한 헤더 (HttpsUtils.smali line 910-948):
+- type: 컨트롤러 모델 ID
+- version: 현재 버전
+- beta: 베타 식별자
+- isLoadBeta: "1"
+
+URL 구성도 수정 — fileURL 이 "/var/lib/tomcat9/webapps//firmwareFile/upload/..."
+같은 서버 절대경로로 반환되므로 그 prefix 제거.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import traceback
 from pathlib import Path
 
-# 매우 첫 단계: 디렉토리/파일 즉시 생성 (artifact 업로드 보장)
 OUT_DIR = Path("firmware_dl")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 DEBUG_DIR = OUT_DIR / "debug"
 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-(OUT_DIR / "_marker.txt").write_text("Python script started\n", encoding="utf-8")
+(OUT_DIR / "_marker.txt").write_text("Python script v5 started\n", encoding="utf-8")
 
 print("=" * 60, flush=True)
-print("8BitDo Firmware Fetcher v4", flush=True)
+print("8BitDo Firmware Fetcher v5 (controller firmware)", flush=True)
 print("=" * 60, flush=True)
 
 try:
     import requests
 except ImportError:
-    print("[!] requests not installed; pip install requests", flush=True)
+    print("[!] pip install requests", flush=True)
     sys.exit(1)
 
 
@@ -34,116 +44,132 @@ BASES = [
     "http://dl.8bitdo.com:8080",
     "http://dl.8bitdo.cn:8080",
 ]
-ENDPOINT_TOOL = "/firmware/loadNewToolUpdateVersion"  # 실제 앱 API
-ENDPOINT_LIST = "/firmware/select"  # 옛 API (디버그용)
-ENDPOINT_NEW = "/firmware/loadNewVersion"  # 또 다른 API
+ENDPOINT = "/firmware/loadNewVersion"
 
-TYPE_CANDIDATES = list(range(1, 51))  # 1~50만
-VERSION_CANDIDATES = [0]  # 빠르게 1번만
+TYPE_RANGE = list(range(1, 200))
 
 
 def safe_post(url: str, headers: dict, timeout: float = 5.0) -> dict | None:
     try:
         r = requests.post(url, headers=headers, timeout=timeout)
         if r.status_code != 200:
-            return {"_http": r.status_code, "_body_preview": r.text[:200] if r.text else ""}
+            return {"_http": r.status_code, "_body": r.text[:300]}
         try:
             return r.json()
         except Exception:
-            return {"_http": 200, "_body_preview": r.text[:200] if r.text else ""}
+            return {"_http": 200, "_body": r.text[:300]}
     except Exception as e:
         return {"_error": str(e)}
+
+
+def fix_url(server_path: str, base: str) -> str:
+    """
+    8BitDo 서버가 반환하는 fileURL 예시:
+        /var/lib/tomcat9/webapps//firmwareFile/upload//abc.zip
+    실제 다운로드 URL:
+        http://dl.8bitdo.com:8080/firmwareFile/upload/abc.zip
+    """
+    if server_path.startswith("http"):
+        return server_path
+    # tomcat webapps 절대 경로 제거
+    s = re.sub(r"^.*?/webapps/+", "/", server_path)
+    # 연속된 / 정리
+    s = re.sub(r"/+", "/", s)
+    if not s.startswith("/"):
+        s = "/" + s
+    return base + s
+
+
+def extract_files(data: dict) -> list[dict]:
+    """응답의 list 안에 있는 파일 정보 모두 추출."""
+    if not isinstance(data, dict):
+        return []
+    items = data.get("list", [])
+    if not isinstance(items, list):
+        return []
+    return items
 
 
 def main() -> int:
     # IP 확인
     try:
         ip = requests.get("https://api.ipify.org", timeout=5).text
-        print(f"내 외부 IP: {ip}", flush=True)
+        print(f"외부 IP: {ip}", flush=True)
     except Exception:
-        print("외부 IP 확인 불가", flush=True)
+        pass
 
-    summary = {"endpoints": {}}
+    all_findings = {}
 
-    # 1. 우선 옛 API (select) 어떤지 확인
     for base in BASES:
-        print(f"\n=== [{base}] /firmware/select 테스트 ===", flush=True)
-        resp = safe_post(f"{base}{ENDPOINT_LIST}", headers={"Beta": "1"}, timeout=8)
-        print(f"  → {str(resp)[:200]}", flush=True)
-        summary["endpoints"][f"{base}/select"] = resp
-
-    # 2. /firmware/loadNewVersion 테스트
-    for base in BASES:
-        print(f"\n=== [{base}] /firmware/loadNewVersion 테스트 ===", flush=True)
-        resp = safe_post(f"{base}{ENDPOINT_NEW}", headers={"Beta": "1"}, timeout=8)
-        print(f"  → {str(resp)[:200]}", flush=True)
-        summary["endpoints"][f"{base}/loadNewVersion"] = resp
-
-    # 3. /firmware/loadNewToolUpdateVersion brute force
-    print("\n=== /firmware/loadNewToolUpdateVersion 브루트 포스 ===", flush=True)
-    type_results = {}
-    for base in BASES:
-        print(f"\n  base: {base}", flush=True)
-        for type_id in TYPE_CANDIDATES:
-            for ver in VERSION_CANDIDATES:
+        print(f"\n=== {base}{ENDPOINT} brute force ===", flush=True)
+        for type_id in TYPE_RANGE:
+            for ver in [0]:
                 resp = safe_post(
-                    f"{base}{ENDPOINT_TOOL}",
-                    headers={"type": str(type_id), "version": str(ver)},
+                    f"{base}{ENDPOINT}",
+                    headers={
+                        "type": str(type_id),
+                        "version": str(ver),
+                        "beta": "0",
+                        "isLoadBeta": "1",
+                    },
                     timeout=4,
                 )
-                # 의미있는 응답 (msgState/error 외 데이터 있는 거)만 기록
                 if isinstance(resp, dict):
-                    extras = [k for k in resp if k not in ("msgState", "error", "_http", "_body_preview", "_error")]
-                    if any(resp.get(k) not in (None, "", [], {}) for k in extras) and "list" not in extras:
-                        type_results[(base, type_id, ver)] = resp
-                        print(f"    [+] type={type_id} ver={ver}: {str(resp)[:200]}", flush=True)
-                    elif resp.get("list") and len(resp.get("list", [])) > 0:
-                        type_results[(base, type_id, ver)] = resp
-                        print(f"    [+] type={type_id} ver={ver} (list non-empty): {str(resp)[:200]}", flush=True)
-            if type_id % 10 == 0:
-                print(f"    진행 type={type_id}, 발견={len(type_results)}", flush=True)
-        # base 별 결과 저장
+                    items = extract_files(resp)
+                    if items:
+                        # 의미 있는 응답
+                        key = f"{base}_type{type_id}_v{ver}"
+                        all_findings[key] = {"base": base, "type": type_id, "ver": ver, "response": resp, "files": items}
+                        # 파일명 보여주기
+                        names = [it.get("fileName", "?") for it in items]
+                        print(f"  [+] type={type_id}: {names}", flush=True)
+            if type_id % 25 == 0:
+                print(f"  진행 type={type_id}, 발견={len(all_findings)}", flush=True)
+
+        # 결과 저장
         base_safe = base.replace("://", "_").replace(":", "_").replace("/", "_")
-        (DEBUG_DIR / f"{base_safe}_types.json").write_text(
-            json.dumps({f"{k[1]}_v{k[2]}": v for k, v in type_results.items() if k[0] == base}, ensure_ascii=False, indent=2),
+        (DEBUG_DIR / f"{base_safe}_results.json").write_text(
+            json.dumps(
+                {k: v for k, v in all_findings.items() if v["base"] == base},
+                ensure_ascii=False, indent=2,
+            ),
             encoding="utf-8",
         )
 
-    summary["type_results_count"] = len(type_results)
-    summary["type_results"] = {f"{k[0]}|{k[1]}_v{k[2]}": v for k, v in type_results.items()}
-    (OUT_DIR / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\n[*] 총 {len(all_findings)}개 type에서 펌웨어 발견", flush=True)
 
-    print(f"\n[*] 총 {len(type_results)}개 응답 발견", flush=True)
-
-    if not type_results:
-        print("[X] 모든 응답 빈값. API 변경 또는 인증 필요.", flush=True)
+    if not all_findings:
+        print("[X] 컨트롤러 펌웨어 못 찾음. 추가 헤더 필요할 수도.", flush=True)
         return 1
 
-    # 다운로드 URL 추출
-    download_count = 0
-    for (base, type_id, ver), data in type_results.items():
-        def find_urls(obj, found):
-            if isinstance(obj, dict):
-                for v in obj.values():
-                    find_urls(v, found)
-            elif isinstance(obj, list):
-                for v in obj:
-                    find_urls(v, found)
-            elif isinstance(obj, str) and ("/firmwareFile" in obj or obj.endswith(".dat") or obj.endswith(".bin")):
-                found.append(obj)
+    # 다운로드
+    print("\n=== 다운로드 ===", flush=True)
+    saved = []
+    seen = set()
+    for key, info in all_findings.items():
+        base = info["base"]
+        type_id = info["type"]
+        for item in info["files"]:
+            server_path = item.get("fileURL") or item.get("filePath") or ""
+            if not server_path:
+                continue
+            url = fix_url(server_path, base)
+            if url in seen:
+                continue
+            seen.add(url)
+            fname = item.get("fileName") or os.path.basename(server_path)
+            ext = ".zip" if server_path.endswith(".zip") else ".dat"
+            outname = f"type{type_id}_{fname}{ext}"
+            outname = re.sub(r"[^\w.\-]", "_", outname)
+            outp = OUT_DIR / outname
 
-        urls = []
-        find_urls(data, urls)
-        for u in urls:
-            full = u if u.startswith("http") else (base + (u if u.startswith("/") else "/" + u))
-            print(f"\n  type={type_id} 다운로드: {full}", flush=True)
+            print(f"\n  type={type_id} {fname}", flush=True)
+            print(f"    URL: {url}", flush=True)
             try:
-                r = requests.get(full, stream=True, timeout=30)
+                r = requests.get(url, stream=True, timeout=60)
+                print(f"    HTTP {r.status_code}, size={r.headers.get('Content-Length','?')}", flush=True)
                 if r.status_code != 200:
-                    print(f"    HTTP {r.status_code}", flush=True)
                     continue
-                fname = os.path.basename(u) or f"type{type_id}.dat"
-                outp = OUT_DIR / fname
                 total = 0
                 with open(outp, "wb") as f:
                     for chunk in r.iter_content(8192):
@@ -154,17 +180,17 @@ def main() -> int:
                     print(f"    너무 작음 ({total}B)", flush=True)
                     continue
                 print(f"    ✓ {total:,} bytes → {outp.name}", flush=True)
-                download_count += 1
-                meta = outp.with_suffix(outp.suffix + ".json")
-                meta.write_text(
-                    json.dumps({"type": type_id, "base": base, "url": full, "response": data}, ensure_ascii=False, indent=2),
+                saved.append(outp)
+                # 메타
+                outp.with_suffix(outp.suffix + ".json").write_text(
+                    json.dumps({"type": type_id, "item": item, "url": url}, ensure_ascii=False, indent=2),
                     encoding="utf-8",
                 )
             except Exception as e:
                 print(f"    실패: {e}", flush=True)
 
-    print(f"\n[완료] {download_count}개 파일 저장", flush=True)
-    return 0 if download_count else 2
+    print(f"\n[완료] {len(saved)}개 펌웨어 파일 저장", flush=True)
+    return 0 if saved else 2
 
 
 if __name__ == "__main__":
@@ -172,6 +198,6 @@ if __name__ == "__main__":
         rc = main()
     except Exception as e:
         traceback.print_exc()
-        (OUT_DIR / "_error.txt").write_text(f"Exception: {e}\n{traceback.format_exc()}", encoding="utf-8")
+        (OUT_DIR / "_error.txt").write_text(f"{e}\n{traceback.format_exc()}", encoding="utf-8")
         rc = 99
     sys.exit(rc)
