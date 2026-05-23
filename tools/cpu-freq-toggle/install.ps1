@@ -1,30 +1,29 @@
 <#
 .SYNOPSIS
-    원격 설치 스크립트 — VBS 파일들을 바탕화면에 자동 다운로드.
-
-.DESCRIPTION
-    PowerShell 한 줄로 모든 VBS 파일을 GitHub에서 받아 바탕화면 폴더에 배치.
+    원격 설치 스크립트 — GUI 프로그램과 보조 파일들을 바탕화면에 자동 다운로드.
 
 .EXAMPLE
-    # PowerShell에서 (관리자 권한 불필요, 파일 다운로드만):
+    # PowerShell에서 (관리자 권한 불필요):
     irm https://raw.githubusercontent.com/tittue/cps-redirect/claude/goal-setting-UNUvb/tools/cpu-freq-toggle/install.ps1 | iex
 #>
 
 $ErrorActionPreference = "Stop"
 
 $baseUrl = "https://raw.githubusercontent.com/tittue/cps-redirect/claude/goal-setting-UNUvb/tools/cpu-freq-toggle"
-$dest    = Join-Path $env:USERPROFILE "Desktop\CPU Freq Toggle"
+$dest    = Join-Path $env:USERPROFILE "Desktop\CPU 클럭 조절"
 
+# GUI 버전 (메인) + 보조 VBS들
 $files = @(
-    "cpu-low.vbs",
-    "cpu-mid.vbs",
-    "cpu-high.vbs",
-    "cpu-toggle.vbs",
+    "cpu_freq_gui.py",      # GUI 프로그램 본체
+    "CPU 클럭 조절.vbs",     # 더블클릭 런처 (메인)
+    "cpu-low.vbs",          # 보조: 50% 단일 적용
+    "cpu-high.vbs",         # 보조: 100% 단일 적용
+    "cpu-toggle.vbs",       # 보조: 50% <-> 100% 토글
     "README.md"
 )
 
 Write-Host ""
-Write-Host " [CPU Freq Toggle - 자동 설치]" -ForegroundColor Cyan
+Write-Host " [CPU 클럭 조절 - 자동 설치]" -ForegroundColor Cyan
 Write-Host " 대상: $dest" -ForegroundColor Gray
 Write-Host ""
 
@@ -33,7 +32,9 @@ if (-not (Test-Path $dest)) {
 }
 
 foreach ($file in $files) {
-    $url     = "$baseUrl/$file"
+    # URL 인코딩 (한글 파일명 처리)
+    $encoded = [uri]::EscapeDataString($file)
+    $url     = "$baseUrl/$encoded"
     $outPath = Join-Path $dest $file
     Write-Host "  - $file " -NoNewline
     try {
@@ -45,13 +46,10 @@ foreach ($file in $files) {
 }
 
 Write-Host ""
-Write-Host " [완료] 바탕화면의 'CPU Freq Toggle' 폴더를 확인하세요." -ForegroundColor Green
+Write-Host " [완료] 바탕화면에 'CPU 클럭 조절' 폴더가 생성되었습니다." -ForegroundColor Green
 Write-Host ""
-Write-Host " 사용법:" -ForegroundColor Yellow
-Write-Host "   * cpu-low.vbs    - CPU 50% (살치 모드)"
-Write-Host "   * cpu-high.vbs   - CPU 100% (평소 모드)"
-Write-Host "   * cpu-toggle.vbs - 50% <-> 100% 자동 토글"
+Write-Host " >> 사용법: 폴더 안의 'CPU 클럭 조절.vbs' 더블클릭" -ForegroundColor Yellow
 Write-Host ""
 
-# 바탕화면 폴더 자동으로 열기
+# 폴더 자동으로 열기
 Start-Process explorer.exe $dest
