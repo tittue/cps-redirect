@@ -1,0 +1,43 @@
+name: Fetch Weibo videos
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"  # 15분마다
+  workflow_dispatch:        # 수동 실행 버튼
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-weibo
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet requests
+
+      - name: Fetch Weibo videos
+        run: python scripts/fetch_weibo.py
+
+      - name: Commit data.json if changed
+        run: |
+          if git diff --quiet weibo/data.json; then
+            echo "변경사항 없음 — 커밋 스킵"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add weibo/data.json
+          ts=$(date -u +"%Y-%m-%d %H:%MZ")
+          git commit -m "Update weibo/data.json ($ts)"
+          git push
