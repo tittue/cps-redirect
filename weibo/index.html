@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>웨이보 실시간 영상 100</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    :root {
+      --bg: #0f1117;
+      --card: #181c26;
+      --card-hi: #232838;
+      --text: #e8e9f3;
+      --dim: #8b8fa3;
+      --accent: #ff4d6d;
+      --accent-2: #4d7cff;
+      --safe-top: env(safe-area-inset-top);
+      --safe-bottom: env(safe-area-inset-bottom);
+    }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "맑은 고딕", "Apple SD Gothic Neo", sans-serif;
+      overscroll-behavior-y: contain;
+    }
+    header {
+      position: sticky; top: 0; z-index: 10;
+      padding: calc(var(--safe-top) + 14px) 16px 12px;
+      background: rgba(15, 17, 23, 0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid #20242f;
+    }
+    .title {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .title h1 {
+      margin: 0;
+      font-size: 18px; font-weight: 700;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .meta {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 6px;
+      font-size: 11px; color: var(--dim);
+    }
+    .refresh-btn {
+      background: none; border: none;
+      color: var(--accent-2); cursor: pointer;
+      font-size: 12px; padding: 4px 8px;
+      border-radius: 6px;
+    }
+    .refresh-btn:active { background: var(--card-hi); }
+
+    main {
+      padding: 12px 12px calc(var(--safe-bottom) + 20px);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    @media (min-width: 600px) { main { grid-template-columns: repeat(3, 1fr); } }
+    @media (min-width: 900px) { main { grid-template-columns: repeat(4, 1fr); } }
+    @media (min-width: 1200px) { main { grid-template-columns: repeat(5, 1fr); } }
+
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      overflow: hidden;
+      position: relative;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .card:active { transform: scale(0.97); }
+    .thumb-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 3 / 4;
+      background: #11141c;
+      overflow: hidden;
+    }
+    .thumb {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .thumb-fallback {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--dim); font-size: 32px;
+    }
+    .play-overlay {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.6));
+      pointer-events: none;
+    }
+    .play-icon {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .play-icon::after {
+      content: '';
+      width: 0; height: 0;
+      border-left: 12px solid white;
+      border-top: 8px solid transparent;
+      border-bottom: 8px solid transparent;
+      margin-left: 3px;
+    }
+    .duration {
+      position: absolute; bottom: 6px; right: 6px;
+      background: rgba(0,0,0,0.6);
+      color: white; font-size: 10px;
+      padding: 2px 5px; border-radius: 4px;
+      font-weight: 600;
+    }
+    .info {
+      padding: 8px 10px 10px;
+    }
+    .video-title {
+      font-size: 12px;
+      line-height: 1.35;
+      margin: 0 0 6px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      max-height: 2.7em;
+    }
+    .author-row {
+      display: flex; align-items: center;
+      font-size: 11px; color: var(--dim);
+      gap: 4px;
+    }
+    .author-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 70%;
+    }
+    .verified {
+      color: var(--accent-2);
+      font-size: 10px;
+    }
+    .stats {
+      margin-top: 4px;
+      font-size: 10px; color: var(--dim);
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+
+    .empty, .loading {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--dim);
+    }
+    .spinner {
+      display: inline-block;
+      width: 28px; height: 28px;
+      border: 3px solid var(--card-hi);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title">
+      <h1>🔥 웨이보 실시간 영상</h1>
+      <button class="refresh-btn" id="refresh">↻ 새로고침</button>
+    </div>
+    <div class="meta">
+      <span id="count">로딩 중...</span>
+      <span id="updated"></span>
+    </div>
+  </header>
+  <main id="grid">
+    <div class="loading">
+      <div class="spinner"></div>
+      <div>영상 불러오는 중...</div>
+    </div>
+  </main>
+
+  <script>
+    // 데이터 위치: 같은 폴더의 data.json (GitHub Action이 주기적으로 갱신)
+    const DATA_URL = './data.json';
+    const FALLBACK_DATA_URL = 'https://raw.githubusercontent.com/tittue/cps-redirect/main/weibo/data.json';
+
+    const grid = document.getElementById('grid');
+    const countEl = document.getElementById('count');
+    const updatedEl = document.getElementById('updated');
+
+    function timeAgo(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d)) return '';
+      const diff = (Date.now() - d.getTime()) / 1000;
+      if (diff < 60) return `${Math.floor(diff)}초 전`;
+      if (diff < 3600) return `${Math.floor(diff/60)}분 전`;
+      if (diff < 86400) return `${Math.floor(diff/3600)}시간 전`;
+      return `${Math.floor(diff/86400)}일 전`;
+    }
+
+    function formatCount(n) {
+      if (!n && n !== 0) return '';
+      if (n >= 10000) return `${(n/10000).toFixed(1)}만`;
+      if (n >= 1000) return `${(n/1000).toFixed(1)}k`;
+      return String(n);
+    }
+
+    function fmtDuration(sec) {
+      if (!sec) return '';
+      sec = Math.floor(sec);
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m}:${String(s).padStart(2,'0')}`;
+    }
+
+    function renderCard(v) {
+      const card = document.createElement('a');
+      card.className = 'card';
+      card.href = v.page_url || '#';
+      card.target = '_blank';
+      card.rel = 'noopener';
+
+      const thumb = v.thumbnail
+        ? `<img class="thumb" loading="lazy" src="${v.thumbnail}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb-fallback',textContent:'🎬'}))">`
+        : `<div class="thumb-fallback">🎬</div>`;
+
+      const dur = fmtDuration(v.duration);
+      const author = v.author?.name || '익명';
+      const verified = v.author?.verified ? '<span class="verified">✓</span>' : '';
+
+      const stats = [];
+      if (v.play_count) stats.push(`▶ ${formatCount(v.play_count)}`);
+      if (v.attitudes) stats.push(`♥ ${formatCount(v.attitudes)}`);
+      if (v.comments) stats.push(`💬 ${formatCount(v.comments)}`);
+
+      card.innerHTML = `
+        <div class="thumb-wrap">
+          ${thumb}
+          <div class="play-overlay"><div class="play-icon"></div></div>
+          ${dur ? `<div class="duration">${dur}</div>` : ''}
+        </div>
+        <div class="info">
+          <p class="video-title">${(v.title || v.text || '제목 없음')}</p>
+          <div class="author-row">
+            <span class="author-name">${author}</span>${verified}
+            <span style="margin-left:auto">${timeAgo(v.created_at)}</span>
+          </div>
+          ${stats.length ? `<div class="stats">${stats.map(s=>`<span>${s}</span>`).join('')}</div>` : ''}
+        </div>
+      `;
+      return card;
+    }
+
+    async function load() {
+      grid.innerHTML = '<div class="loading"><div class="spinner"></div><div>영상 불러오는 중...</div></div>';
+      let data = null;
+      for (const url of [DATA_URL, FALLBACK_DATA_URL]) {
+        try {
+          const r = await fetch(url + '?t=' + Date.now(), { cache: 'no-cache' });
+          if (!r.ok) continue;
+          data = await r.json();
+          break;
+        } catch (e) { /* try next */ }
+      }
+      if (!data || !data.videos || !data.videos.length) {
+        grid.innerHTML = `
+          <div class="empty">
+            <p>아직 데이터가 없습니다.</p>
+            <p style="font-size:11px">GitHub Action 첫 실행을 기다리는 중...</p>
+          </div>`;
+        countEl.textContent = '데이터 없음';
+        return;
+      }
+      grid.innerHTML = '';
+      data.videos.forEach(v => grid.appendChild(renderCard(v)));
+      countEl.textContent = `${data.count}개 영상`;
+      if (data.generated_at) {
+        updatedEl.textContent = `갱신: ${timeAgo(data.generated_at)}`;
+      }
+    }
+
+    document.getElementById('refresh').addEventListener('click', load);
+    load();
+
+    // 60초마다 자동 새로고침
+    setInterval(load, 60000);
+  </script>
+</body>
+</html>
