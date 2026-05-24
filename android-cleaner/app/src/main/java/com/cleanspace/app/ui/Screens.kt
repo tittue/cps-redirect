@@ -1,5 +1,6 @@
 package com.cleanspace.app.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,7 +14,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -116,7 +121,15 @@ fun MainScreen(vm: CleanViewModel) {
             }
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        val gradient = Brush.verticalGradient(
+            listOf(
+                MaterialTheme.colorScheme.secondary.copy(alpha = 0.10f),
+                MaterialTheme.colorScheme.background,
+            )
+        )
+        Box(
+            Modifier.padding(padding).fillMaxSize().background(gradient)
+        ) {
             when (state) {
                 is ScanState.Idle -> {}
                 is ScanState.Scanning -> ScanningView(state)
@@ -193,31 +206,66 @@ private fun ResultView(vm: CleanViewModel, state: ScanState.Done) {
 
 @Composable
 private fun StorageCard(storage: StorageInfo) {
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val danger = MaterialTheme.colorScheme.error
+    val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    val arcColor = if (storage.usedPercent > 90) danger else primary
+
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
     ) {
-        Column(Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(storage.readableUsed, fontSize = 30.sp, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary)
-                Text(" / ${storage.readableTotal}", fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(bottom = 4.dp))
+        Row(
+            Modifier.fillMaxWidth().padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 도넛 차트
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
+                Canvas(modifier = Modifier.size(120.dp)) {
+                    val strokeW = 16.dp.toPx()
+                    val inset = strokeW / 2
+                    val arcSize = androidx.compose.ui.geometry.Size(
+                        size.width - strokeW, size.height - strokeW
+                    )
+                    val topLeft = Offset(inset, inset)
+                    drawArc(
+                        color = track,
+                        startAngle = -90f, sweepAngle = 360f, useCenter = false,
+                        topLeft = topLeft, size = arcSize,
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round),
+                    )
+                    drawArc(
+                        brush = Brush.sweepGradient(listOf(secondary, arcColor, arcColor)),
+                        startAngle = -90f,
+                        sweepAngle = 360f * (storage.usedPercent / 100f),
+                        useCenter = false,
+                        topLeft = topLeft, size = arcSize,
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round),
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("${storage.usedPercent}%", fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                        color = arcColor)
+                    Text("사용", fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                }
             }
-            Spacer(Modifier.height(10.dp))
-            LinearProgressIndicator(
-                progress = { storage.usedPercent / 100f },
-                modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
-                color = if (storage.usedPercent > 90) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "${storage.usedPercent}% 사용 · ${storage.readableFree} 남음",
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-            )
+            Spacer(Modifier.width(20.dp))
+            Column {
+                Text(storage.readableUsed, fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface)
+                Text("/ ${storage.readableTotal}", fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(4.dp)).background(primary))
+                    Spacer(Modifier.width(6.dp))
+                    Text("여유 ${storage.readableFree}", fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
+                }
+            }
         }
     }
 }
