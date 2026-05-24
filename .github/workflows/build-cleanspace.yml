@@ -66,17 +66,12 @@ jobs:
 
           rel=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/$REPO/releases/tags/$TAG")
-<<<<<<< HEAD
           rel_id=$(echo "$rel" | jq -r '.id // empty')
-=======
-          rel_id=$(echo "$rel" | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
->>>>>>> origin/main
 
           if [ -z "$rel_id" ]; then
             create=$(curl -s -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
-<<<<<<< HEAD
               -d "{\"tag_name\":\"$TAG\",\"name\":\"CleanSpace APK\",\"body\":\"Android storage analyzer and batch cleaner. No ads.\"}" \
               "https://api.github.com/repos/$REPO/releases")
             rel_id=$(echo "$create" | jq -r '.id // empty')
@@ -87,22 +82,6 @@ jobs:
           assets=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/$REPO/releases/$rel_id/assets")
           for aid in $(echo "$assets" | jq -r '.[] | select(.name=="CleanSpace.apk") | .id'); do
-=======
-              -d "{\"tag_name\":\"$TAG\",\"name\":\"CleanSpace APK\",\"body\":\"안드로이드 저장공간 분석 & 일괄 정리 앱. 광고 없음.\"}" \
-              "https://api.github.com/repos/$REPO/releases")
-            rel_id=$(echo "$create" | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
-          fi
-          [ -n "$rel_id" ] || { echo "::error::no release id"; exit 1; }
-
-          # 기존 동일 이름 asset 삭제 (덮어쓰기)
-          assets=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$REPO/releases/$rel_id/assets")
-          echo "$assets" | python3 -c "
-import sys,json
-for a in json.load(sys.stdin):
-    if a['name']=='CleanSpace.apk': print(a['id'])
-" | while read aid; do
->>>>>>> origin/main
             curl -s -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$REPO/releases/assets/$aid"
           done
@@ -113,14 +92,7 @@ for a in json.load(sys.stdin):
             --data-binary "@$APK" \
             "https://uploads.github.com/repos/$REPO/releases/$rel_id/assets?name=CleanSpace.apk" \
             -o /tmp/up.json
-<<<<<<< HEAD
           url=$(jq -r '.browser_download_url // empty' /tmp/up.json)
           echo "## APK build complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Download: $url" >> $GITHUB_STEP_SUMMARY
-=======
-          url=$(python3 -c "import json;print(json.load(open('/tmp/up.json')).get('browser_download_url',''))")
-          echo "## ✅ APK 빌드 완료" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "다운로드: $url" >> $GITHUB_STEP_SUMMARY
->>>>>>> origin/main
