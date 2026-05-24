@@ -57,7 +57,6 @@ jobs:
           path: /tmp/build.log
           retention-days: 7
 
-<<<<<<< HEAD
       - name: Publish build log to a release (self-check)
         if: always()
         env:
@@ -100,37 +99,6 @@ jobs:
             --data-binary "@/tmp/build.log" \
             "https://uploads.github.com/repos/$REPO/releases/$rel_id/assets?name=build.log" >/dev/null
           echo "published status=$result to release $TAG"
-=======
-      - name: Report build result to repo (self-check)
-        if: always()
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          result="UNKNOWN"
-          grep -q "BUILD SUCCESSFUL" /tmp/build.log 2>/dev/null && result="SUCCESS"
-          grep -q "BUILD FAILED" /tmp/build.log 2>/dev/null && result="FAILED"
-          {
-            echo "# CleanSpace build status"
-            echo
-            echo "- commit: ${{ github.sha }}"
-            echo "- time: $(date -u +'%Y-%m-%d %H:%M:%SZ')"
-            echo "- result: $result"
-            echo
-            echo "## Error lines (if failed)"
-            echo '```'
-            grep -E "^e: |error:|FAILED|Caused by|Unresolved|Exception" /tmp/build.log 2>/dev/null | tail -60 || echo "(no errors / no log)"
-            echo '```'
-          } > BUILD_STATUS.md
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add BUILD_STATUS.md
-          git commit -m "ci: CleanSpace build status = $result [skip ci]" || { echo "no change"; exit 0; }
-          for i in 1 2 3 4; do
-            if git pull --rebase --autostash origin main && git push; then
-              echo "pushed status"; break
-            fi
-            sleep 3
-          done
->>>>>>> origin/main
 
       - name: Locate APK
         id: apk
