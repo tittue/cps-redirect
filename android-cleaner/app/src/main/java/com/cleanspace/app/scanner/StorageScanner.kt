@@ -28,9 +28,12 @@ class StorageScanner(
 
     private val largeThreshold = 50L * 1024 * 1024  // 50MB
 
+    // 누적용 가변 카운터 (LongArray += Int 가 K1 컴파일러에서 문제라 클래스로)
+    private class Counter(var bytes: Long = 0L, var files: Int = 0)
+
     // 결과 누적
-    private val folderSizes = HashMap<String, LongArray>()  // path -> [size, count]
-    private val mediaSizes = HashMap<MediaType, LongArray>() // type -> [size, count]
+    private val folderSizes = HashMap<String, Counter>()  // path -> 합계
+    private val mediaSizes = HashMap<MediaType, Counter>() // type -> 합계
     private val largeFiles = ArrayList<FileItem>()
     private val screenshots = ArrayList<FileItem>()
     private val downloads = ArrayList<FileItem>()
@@ -85,8 +88,8 @@ class StorageScanner(
                 FolderNode(
                     path = path,
                     name = File(path).name.ifEmpty { path },
-                    sizeBytes = arr[0],
-                    fileCount = arr[1].toInt(),
+                    sizeBytes = arr.bytes,
+                    fileCount = arr.files,
                 )
             }
             .sortedByDescending { it.sizeBytes }
@@ -94,7 +97,7 @@ class StorageScanner(
 
         // 미디어 타입별
         val mediaBreakdown = mediaSizes.entries
-            .map { (type, arr) -> MediaBreakdown(type, arr[0], arr[1].toInt()) }
+            .map { (type, arr) -> MediaBreakdown(type, arr.bytes, arr.files) }
             .sortedByDescending { it.sizeBytes }
 
         val categories = listOf(
@@ -150,7 +153,7 @@ class StorageScanner(
 
         // 이 폴더(직속만 아니라 하위 포함)를 폴더 용량 맵에 기록
         if (dirTotal > 0) {
-            folderSizes[dir.absolutePath] = longArrayOf(dirTotal, dirCount.toLong())
+            folderSizes[dir.absolutePath] = Counter(dirTotal, dirCount)
         }
         return dirTotal
     }
@@ -161,9 +164,9 @@ class StorageScanner(
 
         // 미디어 타입 집계
         val mtype = MediaType.fromExtension(name)
-        val arr = mediaSizes.getOrPut(mtype) { longArrayOf(0, 0) }
-        arr[0] += size
-        arr[1] += 1
+        val acc = mediaSizes.getOrPut(mtype) { Counter() }
+        acc.bytes += size
+        acc.files += 1
 
         // 중복 후보 (크기 기준 그룹)
         bySize.getOrPut(size) { ArrayList() }.add(file)
