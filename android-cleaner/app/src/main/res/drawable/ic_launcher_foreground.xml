@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 빗자루 모양 단순 표현 (브룸 핸들 + 솔) -->
+    <path
+        android:fillColor="#5ED4A3"
+        android:pathData="M62,30 L70,38 L48,60 L40,52 Z" />
+    <path
+        android:fillColor="#4D7CFF"
+        android:pathData="M38,54 L46,62 L44,78 Q38,82 32,78 L30,62 Z" />
+    <path
+        android:strokeColor="#5ED4A3"
+        android:strokeWidth="3"
+        android:pathData="M66,34 L78,22" />
+</vector>

@@ -1,0 +1,102 @@
+name: Build CleanSpace APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag for the APK"
+        required: false
+        default: "cleanspace-app"
+  push:
+    branches: [main]
+    paths:
+      - "android-cleaner/**"
+      - ".github/workflows/build-cleanspace.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant gradlew exec
+        working-directory: android-cleaner
+        run: chmod +x ./gradlew
+
+      - name: Build debug APK
+        working-directory: android-cleaner
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Locate APK
+        id: apk
+        working-directory: android-cleaner
+        run: |
+          apk=$(find app/build/outputs/apk -name "*.apk" | head -1)
+          echo "path=android-cleaner/$apk" >> $GITHUB_OUTPUT
+          ls -la "$apk"
+
+      - name: Upload APK artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CleanSpace-APK
+          path: android-cleaner/app/build/outputs/apk/**/*.apk
+          retention-days: 14
+
+      - name: Upload APK to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.release_tag || 'cleanspace-app' }}
+        run: |
+          REPO="${{ github.repository }}"
+          APK="${{ steps.apk.outputs.path }}"
+          [ -f "$APK" ] || { echo "::error::APK not found"; exit 1; }
+
+          rel=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/releases/tags/$TAG")
+          rel_id=$(echo "$rel" | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+
+          if [ -z "$rel_id" ]; then
+            create=$(curl -s -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -d "{\"tag_name\":\"$TAG\",\"name\":\"CleanSpace APK\",\"body\":\"안드로이드 저장공간 분석 & 일괄 정리 앱. 광고 없음.\"}" \
+              "https://api.github.com/repos/$REPO/releases")
+            rel_id=$(echo "$create" | python3 -c "import sys,json;print(json.load(sys.stdin).get('id',''))")
+          fi
+          [ -n "$rel_id" ] || { echo "::error::no release id"; exit 1; }
+
+          # 기존 동일 이름 asset 삭제 (덮어쓰기)
+          assets=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/releases/$rel_id/assets")
+          echo "$assets" | python3 -c "
+import sys,json
+for a in json.load(sys.stdin):
+    if a['name']=='CleanSpace.apk': print(a['id'])
+" | while read aid; do
+            curl -s -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$REPO/releases/assets/$aid"
+          done
+
+          curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Content-Type: application/vnd.android.package-archive" \
+            --data-binary "@$APK" \
+            "https://uploads.github.com/repos/$REPO/releases/$rel_id/assets?name=CleanSpace.apk" \
+            -o /tmp/up.json
+          url=$(python3 -c "import json;print(json.load(open('/tmp/up.json')).get('browser_download_url',''))")
+          echo "## ✅ APK 빌드 완료" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "다운로드: $url" >> $GITHUB_STEP_SUMMARY
