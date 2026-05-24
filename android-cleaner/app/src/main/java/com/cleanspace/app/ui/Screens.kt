@@ -19,10 +19,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cleanspace.app.AppScanState
 import com.cleanspace.app.CleanViewModel
 import com.cleanspace.app.ScanState
 import com.cleanspace.app.model.*
@@ -80,11 +82,22 @@ fun PermissionScreen(onRequest: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(vm: CleanViewModel) {
+fun MainScreen(
+    vm: CleanViewModel,
+    onOpenUsageAccess: () -> Unit,
+    onUninstallApps: (List<String>, () -> Unit) -> Unit,
+    onOpenAppInfo: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    var tab by remember { mutableStateOf(0) }  // 0 = 파일, 1 = 앱
     val state = vm.scanState
+    val appState = vm.appScanState
 
     LaunchedEffect(Unit) {
         if (state is ScanState.Idle) vm.startScan()
+    }
+    LaunchedEffect(tab) {
+        if (tab == 1 && appState is AppScanState.Idle) vm.scanApps(context)
     }
 
     var snackbarMsg by remember { mutableStateOf<String?>(null) }
@@ -96,28 +109,57 @@ fun MainScreen(vm: CleanViewModel) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHost) },
         topBar = {
-            TopAppBar(
-                title = { Text("🧹 CleanSpace", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = { vm.startScan() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "다시 스캔")
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            val selCount = vm.selectedCount()
-            if (selCount > 0) {
-                DeleteBar(
-                    count = selCount,
-                    bytes = vm.selectedBytes(),
-                    onDelete = {
-                        vm.deleteSelected { bytes, count, failed ->
-                            snackbarMsg = "✓ ${count}개 삭제 (${formatSize(bytes)} 확보)" +
-                                if (failed > 0) " · ${failed}개 실패" else ""
+            Column {
+                TopAppBar(
+                    title = { Text("🧹 CleanSpace", fontWeight = FontWeight.Bold) },
+                    actions = {
+                        IconButton(onClick = {
+                            if (tab == 0) vm.startScan() else vm.scanApps(context)
+                        }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "다시 스캔")
                         }
                     },
                 )
+                TabRow(selectedTabIndex = tab) {
+                    Tab(selected = tab == 0, onClick = { tab = 0 },
+                        text = { Text("📁 파일 정리") })
+                    Tab(selected = tab == 1, onClick = { tab = 1 },
+                        text = { Text("📲 앱 용량") })
+                }
+            }
+        },
+        bottomBar = {
+            if (tab == 0) {
+                val selCount = vm.selectedCount()
+                if (selCount > 0) {
+                    DeleteBar(
+                        count = selCount,
+                        bytes = vm.selectedBytes(),
+                        label = "삭제",
+                        onDelete = {
+                            vm.deleteSelected { bytes, count, failed ->
+                                snackbarMsg = "✓ ${count}개 삭제 (${formatSize(bytes)} 확보)" +
+                                    if (failed > 0) " · ${failed}개 실패" else ""
+                            }
+                        },
+                    )
+                }
+            } else {
+                val selCount = vm.selectedAppCount()
+                if (selCount > 0) {
+                    DeleteBar(
+                        count = selCount,
+                        bytes = vm.selectedAppBytes(),
+                        label = "제거",
+                        onDelete = {
+                            val pkgs = vm.selectedAppPackages()
+                            onUninstallApps(pkgs) {
+                                vm.clearAppSelection()
+                                vm.scanApps(context)
+                            }
+                        },
+                    )
+                }
             }
         },
     ) { padding ->
@@ -130,11 +172,127 @@ fun MainScreen(vm: CleanViewModel) {
         Box(
             Modifier.padding(padding).fillMaxSize().background(gradient)
         ) {
-            when (state) {
-                is ScanState.Idle -> {}
-                is ScanState.Scanning -> ScanningView(state)
-                is ScanState.Error -> ErrorView(state.message) { vm.startScan() }
-                is ScanState.Done -> ResultView(vm, state)
+            if (tab == 0) {
+                when (state) {
+                    is ScanState.Idle -> {}
+                    is ScanState.Scanning -> ScanningView(state)
+                    is ScanState.Error -> ErrorView(state.message) { vm.startScan() }
+                    is ScanState.Done -> ResultView(vm, state)
+                }
+            } else {
+                AppsView(
+                    state = appState,
+                    isSelected = { vm.isAppSelected(it) },
+                    onToggle = { vm.toggleApp(it) },
+                    onOpenInfo = onOpenAppInfo,
+                    onGrantPermission = onOpenUsageAccess,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppsView(
+    state: AppScanState,
+    isSelected: (String) -> Boolean,
+    onToggle: (String) -> Unit,
+    onOpenInfo: (String) -> Unit,
+    onGrantPermission: () -> Unit,
+) {
+    when (state) {
+        is AppScanState.Idle, AppScanState.Scanning -> {
+            Column(
+                Modifier.fillMaxSize().padding(28.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(16.dp))
+                Text("앱 용량 분석 중...", fontWeight = FontWeight.Bold)
+            }
+        }
+        is AppScanState.NoPermission -> {
+            Column(
+                Modifier.fillMaxSize().padding(28.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("🔐", fontSize = 48.sp)
+                Spacer(Modifier.height(12.dp))
+                Text("'사용 정보 접근' 권한 필요", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "앱별 용량을 보려면 '사용 정보 접근' 권한이 필요해요. " +
+                        "다음 화면에서 CleanSpace를 찾아 허용해주세요.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                )
+                Spacer(Modifier.height(20.dp))
+                Button(onClick = onGrantPermission) { Text("권한 설정하러 가기") }
+            }
+        }
+        is AppScanState.Done -> {
+            if (state.apps.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("표시할 앱이 없습니다", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+                }
+                return
+            }
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item {
+                    Text(
+                        "용량 큰 순. 체크 후 '제거' 누르면 순서대로 제거창이 떠요. " +
+                            "앱 탭 → 정보 화면(캐시/데이터 정리).",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                }
+                items(state.apps) { app ->
+                    AppRow(app, isSelected(app.packageName),
+                        onToggle = { onToggle(app.packageName) },
+                        onInfo = { onOpenInfo(app.packageName) })
+                }
+                item { Spacer(Modifier.height(80.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppRow(
+    app: com.cleanspace.app.model.AppInfo,
+    selected: Boolean,
+    onToggle: () -> Unit,
+    onInfo: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = selected, onCheckedChange = { onToggle() })
+            Column(Modifier.weight(1f).clickable { onToggle() }) {
+                Text(app.label, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("앱 ${app.readableApp} · 데이터 ${app.readableData} · 캐시 ${app.readableCache}",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(app.readableTotal, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.primary)
+            IconButton(onClick = onInfo) {
+                Icon(Icons.Default.Info, contentDescription = "앱 정보")
             }
         }
     }
@@ -402,7 +560,7 @@ private fun FileRow(vm: CleanViewModel, item: FileItem) {
 }
 
 @Composable
-private fun DeleteBar(count: Int, bytes: Long, onDelete: () -> Unit) {
+private fun DeleteBar(count: Int, bytes: Long, label: String, onDelete: () -> Unit) {
     var confirm by remember { mutableStateOf(false) }
     Surface(color = MaterialTheme.colorScheme.surfaceVariant, tonalElevation = 8.dp) {
         Row(
@@ -422,18 +580,18 @@ private fun DeleteBar(count: Int, bytes: Long, onDelete: () -> Unit) {
             ) {
                 Icon(Icons.Default.Delete, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
-                Text("삭제")
+                Text(label)
             }
         }
     }
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
-            title = { Text("정말 삭제할까요?") },
-            text = { Text("${count}개 파일 (${formatSize(bytes)})을 영구 삭제합니다. 복구 불가능합니다.") },
+            title = { Text("정말 ${label}할까요?") },
+            text = { Text("${count}개 (${formatSize(bytes)}) 대상입니다.") },
             confirmButton = {
                 TextButton(onClick = { confirm = false; onDelete() }) {
-                    Text("삭제", color = MaterialTheme.colorScheme.error)
+                    Text(label, color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {

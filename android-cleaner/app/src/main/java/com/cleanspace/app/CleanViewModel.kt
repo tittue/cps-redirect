@@ -1,14 +1,17 @@
 package com.cleanspace.app
 
+import android.content.Context
 import android.os.Environment
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cleanspace.app.model.AppInfo
 import com.cleanspace.app.model.CategoryResult
 import com.cleanspace.app.model.CleanCategory
 import com.cleanspace.app.model.FileItem
+import com.cleanspace.app.scanner.AppScanner
 import com.cleanspace.app.scanner.ScanResult
 import com.cleanspace.app.scanner.StorageScanner
 import kotlinx.coroutines.Dispatchers
@@ -22,9 +25,59 @@ sealed interface ScanState {
     data class Error(val message: String) : ScanState
 }
 
+sealed interface AppScanState {
+    data object Idle : AppScanState
+    data object Scanning : AppScanState
+    data object NoPermission : AppScanState
+    data class Done(val apps: List<AppInfo>) : AppScanState
+}
+
 class CleanViewModel : ViewModel() {
     var scanState by mutableStateOf<ScanState>(ScanState.Idle)
         private set
+
+    var appScanState by mutableStateOf<AppScanState>(AppScanState.Idle)
+        private set
+
+    private val selectedPackages = mutableSetOf<String>()
+
+    fun scanApps(context: Context) {
+        appScanState = AppScanState.Scanning
+        viewModelScope.launch {
+            val scanner = AppScanner(context.applicationContext)
+            if (!scanner.hasUsageAccess()) {
+                appScanState = AppScanState.NoPermission
+                return@launch
+            }
+            val apps = withContext(Dispatchers.IO) { scanner.scan(includeSystem = false) }
+            selectedPackages.clear()
+            appScanState = AppScanState.Done(apps)
+        }
+    }
+
+    fun isAppSelected(pkg: String): Boolean = selectedPackages.contains(pkg)
+
+    fun toggleApp(pkg: String) {
+        if (selectedPackages.contains(pkg)) selectedPackages.remove(pkg)
+        else selectedPackages.add(pkg)
+        val s = appScanState
+        if (s is AppScanState.Done) appScanState = AppScanState.Done(s.apps)
+    }
+
+    fun selectedAppPackages(): List<String> = selectedPackages.toList()
+
+    fun selectedAppCount(): Int = selectedPackages.size
+
+    fun selectedAppBytes(): Long {
+        val s = appScanState as? AppScanState.Done ?: return 0L
+        return s.apps.filter { selectedPackages.contains(it.packageName) }.sumOf { it.totalBytes }
+    }
+
+    fun clearAppSelection() {
+        selectedPackages.clear()
+        val s = appScanState
+        if (s is AppScanState.Done) appScanState = AppScanState.Done(s.apps)
+    }
 
     // 선택 상태를 path 기준으로 별도 관리 (재구성에도 유지)
     private val selectedPaths = mutableSetOf<String>()
