@@ -81,6 +81,22 @@ data class MediaBreakdown(
     val readableSize: String get() = formatSize(sizeBytes)
 }
 
+/** 설치된 앱의 용량 정보 (StorageStatsManager 기반) */
+data class AppInfo(
+    val packageName: String,
+    val label: String,
+    val appBytes: Long,
+    val dataBytes: Long,
+    val cacheBytes: Long,
+    val isSystem: Boolean,
+) {
+    val totalBytes: Long get() = appBytes + dataBytes + cacheBytes
+    val readableTotal: String get() = formatSize(totalBytes)
+    val readableApp: String get() = formatSize(appBytes)
+    val readableData: String get() = formatSize(dataBytes)
+    val readableCache: String get() = formatSize(cacheBytes)
+}
+
 /** 저장공간 정보 */
 data class StorageInfo(
     val totalBytes: Long,

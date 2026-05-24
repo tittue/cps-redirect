@@ -21,9 +21,18 @@ class MainActivity : ComponentActivity() {
 
     private var hasPermission by mutableStateOf(false)
 
+    // 순차 앱 제거 큐
+    private val uninstallQueue = ArrayDeque<String>()
+    private var onUninstallsDone: (() -> Unit)? = null
+
     private val legacyPermLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             hasPermission = checkStoragePermission()
+        }
+
+    private val uninstallLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            launchNextUninstall()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,7 +43,12 @@ class MainActivity : ComponentActivity() {
             CleanSpaceTheme {
                 if (hasPermission) {
                     val vm: CleanViewModel = viewModel()
-                    MainScreen(vm)
+                    MainScreen(
+                        vm = vm,
+                        onOpenUsageAccess = { openUsageAccessSettings() },
+                        onUninstallApps = { pkgs, done -> startUninstalls(pkgs, done) },
+                        onOpenAppInfo = { pkg -> openAppInfo(pkg) },
+                    )
                 } else {
                     PermissionScreen(onRequest = { requestStoragePermission() })
                 }
@@ -47,6 +61,8 @@ class MainActivity : ComponentActivity() {
         hasPermission = checkStoragePermission()
     }
 
+    // ---- 저장소 권한 ----
+
     private fun checkStoragePermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()
@@ -58,7 +74,6 @@ class MainActivity : ComponentActivity() {
 
     private fun requestStoragePermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // MANAGE_EXTERNAL_STORAGE — 설정 화면으로 이동
             try {
                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
                 intent.data = Uri.parse("package:$packageName")
@@ -73,6 +88,52 @@ class MainActivity : ComponentActivity() {
                     android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
                 )
             )
+        }
+    }
+
+    // ---- 사용 정보 접근 (앱별 용량용) ----
+
+    private fun openUsageAccessSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        } catch (e: Exception) {
+            startActivity(Intent(Settings.ACTION_SETTINGS))
+        }
+    }
+
+    private fun openAppInfo(pkg: String) {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            intent.data = Uri.parse("package:$pkg")
+            startActivity(intent)
+        } catch (e: Exception) {
+            // ignore
+        }
+    }
+
+    // ---- 순차 앱 제거 ----
+
+    private fun startUninstalls(pkgs: List<String>, done: () -> Unit) {
+        uninstallQueue.clear()
+        uninstallQueue.addAll(pkgs)
+        onUninstallsDone = done
+        launchNextUninstall()
+    }
+
+    private fun launchNextUninstall() {
+        val pkg = uninstallQueue.removeFirstOrNull()
+        if (pkg == null) {
+            onUninstallsDone?.invoke()
+            onUninstallsDone = null
+            return
+        }
+        try {
+            @Suppress("DEPRECATION")
+            val intent = Intent(Intent.ACTION_UNINSTALL_PACKAGE, Uri.parse("package:$pkg"))
+            intent.putExtra(Intent.EXTRA_RETURN_RESULT, true)
+            uninstallLauncher.launch(intent)
+        } catch (e: Exception) {
+            launchNextUninstall()
         }
     }
 }
