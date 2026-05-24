@@ -54,6 +54,7 @@ jobs:
           name: gradle-build-log
           path: /tmp/build.log
           retention-days: 7
+<<<<<<< HEAD
 
       - name: Report build result to repo (self-check)
         if: always()
@@ -84,6 +85,8 @@ jobs:
             fi
             sleep 3
           done
+=======
+>>>>>>> origin/main
 
       - name: Locate APK
         id: apk
