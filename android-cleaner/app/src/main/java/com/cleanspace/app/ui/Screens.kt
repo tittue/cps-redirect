@@ -1,6 +1,9 @@
 package com.cleanspace.app.ui
 
+<<<<<<< HEAD
 import androidx.compose.foundation.Canvas
+=======
+>>>>>>> origin/main
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,11 +17,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+<<<<<<< HEAD
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+=======
+import androidx.compose.ui.graphics.Color
+>>>>>>> origin/main
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -121,6 +128,7 @@ fun MainScreen(vm: CleanViewModel) {
             }
         },
     ) { padding ->
+<<<<<<< HEAD
         val gradient = Brush.verticalGradient(
             listOf(
                 MaterialTheme.colorScheme.secondary.copy(alpha = 0.10f),
@@ -130,6 +138,9 @@ fun MainScreen(vm: CleanViewModel) {
         Box(
             Modifier.padding(padding).fillMaxSize().background(gradient)
         ) {
+=======
+        Box(Modifier.padding(padding).fillMaxSize()) {
+>>>>>>> origin/main
             when (state) {
                 is ScanState.Idle -> {}
                 is ScanState.Scanning -> ScanningView(state)
@@ -206,6 +217,7 @@ private fun ResultView(vm: CleanViewModel, state: ScanState.Done) {
 
 @Composable
 private fun StorageCard(storage: StorageInfo) {
+<<<<<<< HEAD
     val primary = MaterialTheme.colorScheme.primary
     val secondary = MaterialTheme.colorScheme.secondary
     val danger = MaterialTheme.colorScheme.error
@@ -266,6 +278,33 @@ private fun StorageCard(storage: StorageInfo) {
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
                 }
             }
+=======
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(storage.readableUsed, fontSize = 30.sp, fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary)
+                Text(" / ${storage.readableTotal}", fontSize = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(bottom = 4.dp))
+            }
+            Spacer(Modifier.height(10.dp))
+            LinearProgressIndicator(
+                progress = { storage.usedPercent / 100f },
+                modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
+                color = if (storage.usedPercent > 90) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "${storage.usedPercent}% 사용 · ${storage.readableFree} 남음",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            )
+>>>>>>> origin/main
         }
     }
 }
