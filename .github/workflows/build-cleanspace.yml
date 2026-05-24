@@ -37,7 +37,23 @@ jobs:
 
       - name: Build debug APK
         working-directory: android-cleaner
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee /tmp/build.log
+          status=${PIPESTATUS[0]}
+          echo "## Gradle build log (errors)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "^e: |error:|^> |FAILED|Caused by|Exception|Unresolved|BUILD " /tmp/build.log | tail -80 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-log
+          path: /tmp/build.log
+          retention-days: 7
 
       - name: Locate APK
         id: apk
